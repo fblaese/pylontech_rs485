@@ -42,6 +42,13 @@ class PylonRS485 : public PollingComponent, public uart::UARTDevice {
 		void register_listener(PylontechRS485Listener *listener) { this->listeners_.push_back(listener); }
 	
 	private:
+		// Upper bound on how many bytes loop() will drain from the UART in a
+		// single call. Without this cap, a noisy/floating RS485 line that keeps
+		// streaming bytes faster than (or as fast as) they can be read would
+		// keep available() true forever, causing loop() to never return and
+		// starving the rest of the firmware (WiFi, API, logger, ...).
+		static constexpr int MAX_BYTES_PER_LOOP = 256;
+
 		enum class State { IDLE, SEND_REQUEST, WAITING_FOR_RESPONSE };
 
 		uint8_t battery_count_{1};

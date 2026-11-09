@@ -91,6 +91,7 @@ std::vector<uint8_t> PylonRS485::parseResponse(std::vector<uint8_t> response) {
     uint16_t calc_crc = calculateCRC(output);
     if (crc != calc_crc) {
         ESP_LOGE("PylonRS485", "Invalid CRC");
+        return {};
     }
 
     // TODO: check len crc
@@ -219,8 +220,11 @@ void PylonRS485::loop() {
             return;
 
         case State::SEND_REQUEST: {
-            // Drain any stale bytes from a previous response
-            while (available()) {
+            // Drain any stale bytes from a previous response. Cap the number of
+            // bytes drained per loop() call so a noisy/floating RS485 line that
+            // keeps streaming garbage can never starve the rest of the firmware
+            // (WiFi, API, logger, ...) by looping here forever.
+            for (int i = 0; i < MAX_BYTES_PER_LOOP && available(); i++) {
                 read();
             }
             this->rx_buffer_.clear();
@@ -233,8 +237,10 @@ void PylonRS485::loop() {
         }
 
         case State::WAITING_FOR_RESPONSE: {
-            // Collect bytes as they arrive — no blocking
-            while (available()) {
+            // Collect bytes as they arrive — no blocking. Cap the number of bytes
+            // processed per loop() call for the same reason as above: a
+            // continuously noisy line must not be able to monopolize the CPU.
+            for (int i = 0; i < MAX_BYTES_PER_LOOP && available(); i++) {
                 uint8_t byte = read();
                 this->rx_buffer_.push_back(byte);
                 if (byte != '\r')
